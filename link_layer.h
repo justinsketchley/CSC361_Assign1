@@ -29,10 +29,9 @@ struct Timed_packet {
 const int MAX_QUEUE_SIZE = 1024;
 class Send_Queue {
 
-
+	public :
 	Timed_packet data[MAX_QUEUE_SIZE];
 	int head,tail;
-	public :
 	Send_Queue()
 	{
 		head=tail=-1;
