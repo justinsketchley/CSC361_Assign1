@@ -154,6 +154,7 @@ void* Link_layer::loop(void* thread_creator)
 	Link_layer* link_layer = ((Link_layer*) thread_creator);
 
 	while (true) {
+		pthread_mutex_lock(&link_layer->lock);
 		if (link_layer->receive_buffer_length == 0) {
 			unsigned int length =
 			 link_layer->physical_layer_interface->receive
@@ -163,6 +164,7 @@ void* Link_layer::loop(void* thread_creator)
 				link_layer->receive_buffer_length = length;
 			}
 		}
+		pthread_mutex_unlock(&link_layer->lock);
 
 		usleep(LOOP_INTERVAL);
 	}
