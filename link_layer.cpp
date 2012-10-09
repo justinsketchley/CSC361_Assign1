@@ -7,7 +7,7 @@ unsigned short checksum(struct Packet);
 
 void Send_Queue :: enqueue(Timed_packet p)
 {
-	if((head==0 && tail==MAX_QUEUE_SIZE-1) || (tail+1==head)) {
+	if(isFull()) {
 		//queue full
 	}	
 	else {
@@ -50,6 +50,32 @@ bool Send_Queue :: isEmpty() {
 	}
 	return false;
 }
+//Wrong!
+int Send_Queue :: size(){
+	return (tail - head);
+}
+bool Send_Queue :: isFull() {
+	if((head==0 && tail==MAX_QUEUE_SIZE-1) || (tail+1==head)) {
+		return true;
+	}
+	return false;
+}
+void Send_Queue :: removeLeft(unsigned int packetNum) {
+	//Find packet in queue
+	int location = -1;
+	for(int i=head;i<size();i++){
+		if(data[i].packet.header.seq == packetNum){
+			location = i;
+			break;		
+		}
+	}
+	if(location != -1){
+		//remove packets to left of found packet
+		for(int i=head;i<location;i++){
+			dequeue();
+		}
+	}
+}
 
 
 Link_layer::Link_layer(Physical_layer_interface* physical_layer_interface,
@@ -77,7 +103,7 @@ unsigned int Link_layer::send(unsigned char buffer[],unsigned int length)
 	if(length == 0 || length > max_send_window_size) {
 		throw Link_layer_exception();
 	}
-	if(!send_queue.isEmpty()) {
+	if(!send_queue.isFull()) {
 		Timed_packet P;
 		gettimeofday(&P.send_time,NULL);
 		std::copy(buffer,buffer+sizeof(buffer),P.packet.data);
@@ -135,9 +161,7 @@ void Link_layer::process_received_packet(struct Packet p)
 
 void Link_layer::remove_acked_packets()
 {
-	//if send_queue contains a packet acknowldged by last_receive_ack
-	//if(send_queue.
-		//remove that packet and all packets to its left
+	send_queue.removeLeft(last_receive_ack);
 }
 
 void Link_layer::send_timed_out_packets()
