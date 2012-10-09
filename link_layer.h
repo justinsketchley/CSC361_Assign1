@@ -39,6 +39,9 @@ class Send_Queue {
 	void enqueue(Timed_packet);
 	Timed_packet dequeue();
 	bool isEmpty();
+	bool isFull();
+	int size();
+	void removeLeft(unsigned int);
 };
 
 class Link_layer {
