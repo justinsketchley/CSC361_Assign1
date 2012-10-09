@@ -174,7 +174,7 @@ void Link_layer::send_timed_out_packets()
 		if(P.send_time < now ){
 			P.packet.header.ack = next_receive_seq;
 			P.packet.header.checksum = checksum(P.packet);
-			if(physical_layer_interface->send(P.packet.data, 				P.packet.header.data_length)){
+			if(physical_layer_interface->send(P.packet.data,P.packet.header.data_length)){
 				P.send_time = now  + timeout;
 			}
 		}
