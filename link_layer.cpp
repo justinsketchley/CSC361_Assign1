@@ -142,10 +142,32 @@ void Link_layer::remove_acked_packets()
 
 void Link_layer::send_timed_out_packets()
 {
+
+	for(int i=send_queue.head;i<send_queue.tail;i++){
+		Timed_packet P = send_queue.data[i];
+		timeval now;
+		(gettimeofday(&now,NULL));
+		if(P.send_time < now ){
+			P.packet.header.ack = next_receive_seq;
+			P.packet.header.checksum = checksum(P.packet);
+			if(physical_layer_interface->send(P.packet.data, 				P.packet.header.data_length)){
+				P.send_time = now  + timeout;
+			}
+		}
+	}
 }
 
 void Link_layer::generate_ack_packet()
 {
+
+	if(send_queue.isEmpty()){
+		Timed_packet P;
+		gettimeofday(&P.send_time,NULL);
+		P.packet.header.seq = next_send_seq;
+		P.packet.header.data_length = 0;
+		next_send_seq++;
+	}
+	
 }
 
 void* Link_layer::loop(void* thread_creator)
