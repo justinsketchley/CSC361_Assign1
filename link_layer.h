@@ -69,8 +69,6 @@ private:
 	// seq for next packet added to send_queue
 	unsigned int next_send_seq;
 
-	unsigned int next_send_ack;
-
 	// seq of next packet expected from PL
 	unsigned int next_receive_seq;
 

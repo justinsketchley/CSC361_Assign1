@@ -92,7 +92,6 @@ Link_layer::Link_layer(Physical_layer_interface* physical_layer_interface,
 	receive_buffer_length = 0;
 
 	next_send_seq = 0;
-	next_send_ack = 0;
 	next_receive_seq = 0;
 	last_receive_ack = 0;
 
@@ -132,11 +131,11 @@ unsigned int Link_layer::send(unsigned char buffer[],unsigned int length)
 		next_send_seq++;
 		pthread_mutex_unlock(&send_lock);
 
-		//now return true
-		return true;		
+		//now its length not true
+		return length;		
 	}
-	//Change to return false
-	return false;
+	//actually it is 0 instead of false
+	return 0;
 }
 
 unsigned int Link_layer::receive(unsigned char buffer[])
