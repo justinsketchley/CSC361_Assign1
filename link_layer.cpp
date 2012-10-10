@@ -2,6 +2,8 @@
 #include "timeval_operators.h"
 #include <pthread.h>
 #include <sys/time.h>
+#include <cstring>
+
 
 unsigned short checksum(struct Packet);
 
@@ -60,18 +62,21 @@ bool Send_Queue :: isFull() {
 	}
 	return false;
 }
-void Send_Queue :: removeLeft(unsigned int packetNum) {
+void Send_Queue :: removeLeft(unsigned int packet_num) {
+	if(isEmpty()){
+		return;
+	}
 	//Find packet in queue
 	int location = -1;
 	for(int i=head;i<size();i++){
-		if(data[i].packet.header.seq == packetNum){
+		if(data[i].packet.header.seq == packet_num){
 			location = i;
 			break;		
 		}
 	}
 	if(location != -1){
 		//remove packets to left of found packet
-		for(int i=head;i<location;i++){
+		for(int i=head;i<=location;i++){
 			dequeue();
 		}
 	}
@@ -91,7 +96,11 @@ Link_layer::Link_layer(Physical_layer_interface* physical_layer_interface,
 	next_receive_seq = 0;
 	last_receive_ack = 0;
 
-	pthread_mutex_init(&lock,NULL);
+	new_buffer = new unsigned char[Physical_layer_interface::MAXIMUM_BUFFER_LENGTH];
+	decon_buffer = new unsigned char[Physical_layer_interface::MAXIMUM_BUFFER_LENGTH];
+
+	pthread_mutex_init(&receive_buffer_lock,NULL);
+	pthread_mutex_init(&send_lock,NULL);
 	if (pthread_create(&thread,NULL,&Link_layer::loop,this) < 0) {
 		throw Link_layer_exception();
 	}
@@ -100,7 +109,7 @@ Link_layer::Link_layer(Physical_layer_interface* physical_layer_interface,
 
 unsigned int Link_layer::send(unsigned char buffer[],unsigned int length)
 {
-	if(length == 0 || length > max_send_window_size) {
+	if(length == 0 || length > MAXIMUM_DATA_LENGTH) {
 		throw Link_layer_exception();
 	}
 	if(!send_queue.isFull()) {
@@ -108,24 +117,30 @@ unsigned int Link_layer::send(unsigned char buffer[],unsigned int length)
 		gettimeofday(&P.send_time,NULL);
 		std::copy(buffer,buffer+sizeof(buffer),P.packet.data);
 		P.packet.header.data_length = length;
+		
+		//shared variable 
+		pthread_mutex_lock(&send_lock);
 		P.packet.header.seq = next_send_seq;
+		pthread_mutex_unlock(&send_lock);
 		send_queue.enqueue(P);
 
+		//shared variable 
+		pthread_mutex_lock(&send_lock);
 		next_send_seq++;
+		pthread_mutex_unlock(&send_lock);
 
-		//now return true		
+		//now return true
+		return true;		
 	}
-	//Remove this	
-	unsigned int n = physical_layer_interface->send(buffer,length);
 	//Change to return false
-	return n;
+	return false;
 }
 
 unsigned int Link_layer::receive(unsigned char buffer[])
 {
 	unsigned int length;
 
-	pthread_mutex_lock(&lock);
+	pthread_mutex_lock(&receive_buffer_lock);
 	length = receive_buffer_length;
 	if (length > 0) {
 		for (unsigned int i = 0; i < length; i++) {
@@ -133,7 +148,7 @@ unsigned int Link_layer::receive(unsigned char buffer[])
 		}
 		receive_buffer_length = 0;
 	}
-	pthread_mutex_unlock(&lock);
+	pthread_mutex_unlock(&receive_buffer_lock);
 
 	return length;
 }
@@ -142,21 +157,25 @@ void Link_layer::process_received_packet(struct Packet p)
 {
 	if (p.header.seq == next_receive_seq) {
 		if (sizeof(p.data) > 0) {
-			pthread_mutex_lock(&lock);
+			pthread_mutex_lock(&receive_buffer_lock);
 			if (receive_buffer_length == 0){
 				//copy packet data to receive_buffer
 				std::copy(p.data,p.data+sizeof(p.data),receive_buffer);
 				//increment next_receive_seq
 				next_receive_seq++;
 			}
-			pthread_mutex_unlock(&lock);
+			pthread_mutex_unlock(&receive_buffer_lock);
 		}
 		else {
 			//increment next_receive_seq
+			pthread_mutex_lock(&receive_buffer_lock);
 			next_receive_seq++;
+			pthread_mutex_unlock(&receive_buffer_lock);
 		}
 	}
+
 	last_receive_ack = p.header.ack;
+
 }
 
 void Link_layer::remove_acked_packets()
@@ -174,7 +193,19 @@ void Link_layer::send_timed_out_packets()
 		if(P.send_time < now ){
 			P.packet.header.ack = next_receive_seq;
 			P.packet.header.checksum = checksum(P.packet);
-			if(physical_layer_interface->send(P.packet.data,P.packet.header.data_length)){
+
+			//Construct char[] from header and data
+			memcpy(new_buffer, (unsigned char*)&P.packet.header.checksum, sizeof(int));
+			memcpy((new_buffer+sizeof(int)), (unsigned char*)&P.packet.header.seq, sizeof(int));
+			memcpy((new_buffer+2*sizeof(int)), (unsigned char*)&P.packet.header.ack, sizeof(int));
+			memcpy((new_buffer+3*sizeof(int)), (unsigned char*)&P.packet.header.data_length, sizeof(int));
+			memcpy((new_buffer+4*sizeof(int)), P.packet.data, P.packet.header.data_length);
+			//std::copy(P.packet.header.checksum,P.packet.header.checksum+sizeof(int),new_buffer);
+			//std::copy(P.packet.header.seq,P.packet.header.seq+sizeof(int),new_buffer+sizeof(int));
+			//std::copy(P.packet.header.ack,P.packet.header.ack+sizeof(int),new_buffer+(sizeof(int)*2));
+			//std::copy(P.packet.header.checksum,P.packet.header.data_length_buffer+sizeof(int),new_buffer+(sizeof(int)*3));
+			if(physical_layer_interface->send(new_buffer,sizeof(new_buffer))){
+				gettimeofday(&now,NULL);
 				P.send_time = now  + timeout;
 			}
 		}
@@ -187,9 +218,16 @@ void Link_layer::generate_ack_packet()
 	if(send_queue.isEmpty()){
 		Timed_packet P;
 		gettimeofday(&P.send_time,NULL);
+
+		pthread_mutex_lock(&send_lock);
 		P.packet.header.seq = next_send_seq;
+		pthread_mutex_unlock(&send_lock);
+
 		P.packet.header.data_length = 0;
+
+		pthread_mutex_lock(&send_lock);
 		next_send_seq++;
+		pthread_mutex_unlock(&send_lock);
 	}
 	
 }
@@ -200,19 +238,40 @@ void* Link_layer::loop(void* thread_creator)
 	Link_layer* link_layer = ((Link_layer*) thread_creator);
 
 	while (true) {
-		pthread_mutex_lock(&link_layer->lock);
-		if (link_layer->receive_buffer_length == 0) {
-			unsigned int length =
-			 link_layer->physical_layer_interface->receive
-			 (link_layer->receive_buffer);
+		//For received packets
+		Packet p;
+		unsigned int length = link_layer->physical_layer_interface->receive(link_layer->decon_buffer);
+		if (length != 0) {
+			//Need to reconstruct header
+			memcpy(&p.header.checksum, link_layer->decon_buffer, sizeof(int));
+			cout << "checksum: " <<  p.header.checksum << endl;
+			memcpy(&p.header.seq, (link_layer->decon_buffer+sizeof(int)), sizeof(int));
+			cout << "sequence: " <<  p.header.seq << endl;
+			memcpy(&p.header.ack, (link_layer->decon_buffer+2*sizeof(int)), sizeof(int));
+			cout << "ack: " <<  p.header.ack << endl;
+			memcpy(&p.header.data_length, (link_layer->decon_buffer+3*sizeof(int)), sizeof(int));
+			cout << "data_length: " <<  p.header.data_length << endl;
 
-			if (length > 0) {
-				link_layer->receive_buffer_length = length;
+			//Reconstruct data
+			memcpy(&p.data, (link_layer->decon_buffer+4*sizeof(int)), p.header.data_length);
+
+			//p.header.checksum = checksum(p);
+			cout<<"max data length: "<<MAXIMUM_DATA_LENGTH << endl;
+			if (length > 0 && length <= Physical_layer_interface::MAXIMUM_BUFFER_LENGTH) {
+				cout << "do i get here?" <<endl;
+				link_layer->process_received_packet(p);
 			}
+			cout << "second something" << endl;
 		}
-		pthread_mutex_unlock(&link_layer->lock);
-
+		//For sent packets
+		link_layer->remove_acked_packets();
+		link_layer->send_timed_out_packets();
+		
+		//Pause
 		usleep(LOOP_INTERVAL);
+
+		//Acknowledgement packets
+		link_layer->generate_ack_packet();		
 	}
 
 	return NULL;

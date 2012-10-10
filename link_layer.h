@@ -63,7 +63,8 @@ private:
 	timeval timeout;
 
 	pthread_t thread;
-	pthread_mutex_t lock;
+	pthread_mutex_t receive_buffer_lock;
+	pthread_mutex_t send_lock;
 
 	// seq for next packet added to send_queue
 	unsigned int next_send_seq;
@@ -75,6 +76,12 @@ private:
 
 	// last ack received from PL
 	unsigned int last_receive_ack;
+
+	//Buffer for constructing send packets
+	unsigned char* new_buffer;
+
+	//Buffer for deconstructing receive packets
+	unsigned char* decon_buffer;
 
 	unsigned char receive_buffer[MAXIMUM_DATA_LENGTH];
 	unsigned int receive_buffer_length;
