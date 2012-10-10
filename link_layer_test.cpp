@@ -35,8 +35,8 @@ void send_n(Link_layer *send_link_layer,Link_layer *receive_link_layer,int n)
 	}
 }
 
+//Physical_layer physical_layer(a_impair,b_impair,send_log,receive_log);
 Physical_layer physical_layer(a_impair,b_impair,NULL,NULL);
-
 Link_layer* a_link_layer = new Link_layer
  (physical_layer.get_a_interface(),num_seq,max_win,timeout);
 
