@@ -159,7 +159,7 @@ void Link_layer::process_received_packet(struct Packet p)
 {
 	//cout << "receive seq number: " << next_receive_seq  << endl;
 	if (p.header.seq == next_receive_seq) {
-		cout << "ELLLOOOO!" << endl;
+		//cout << "ELLLOOOO!" << endl;
 		if (sizeof(p.data) > 0) {
 			pthread_mutex_lock(&receive_buffer_lock);
 			if (receive_buffer_length == 0){
@@ -270,6 +270,8 @@ void* Link_layer::loop(void* thread_creator)
 			std::copy(link_layer->decon_buffer+3*sizeof(int), link_layer->decon_buffer+4*sizeof(int),&p.header.data_length);
 			//cout << "data_length: " <<  p.header.data_length << endl;
 
+			//Currently doesn't receive any data_length for some reason
+			
 			//Reconstruct data
 			memcpy(&p.data, (link_layer->decon_buffer+4*sizeof(int)), p.header.data_length);
 
