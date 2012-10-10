@@ -160,7 +160,7 @@ void Link_layer::process_received_packet(struct Packet p)
 	//cout << "receive seq number: " << next_receive_seq  << endl;
 	if (p.header.seq == next_receive_seq) {
 		//cout << "ELLLOOOO!" << endl;
-		if (sizeof(p.data) > 0) {
+		if (p.header.data_length > 0) {
 			pthread_mutex_lock(&receive_buffer_lock);
 			if (receive_buffer_length == 0){
 				//copy packet data to receive_buffer
@@ -201,23 +201,25 @@ void Link_layer::send_timed_out_packets()
 				P.packet.header.checksum = checksum(P.packet);
 
 				//Construct char[] from header and data
-				//memcpy(new_buffer, (unsigned char*)&P.packet.header.checksum, sizeof(int));
-				std::copy((unsigned char*)&P.packet.header.checksum,(unsigned char*)&P.packet.header.checksum+sizeof(int),new_buffer);
-				//memcpy((new_buffer+sizeof(int)), (unsigned char*)&P.packet.header.seq, sizeof(int));
-				std::copy((unsigned char*)&P.packet.header.seq,(unsigned char*)&P.packet.header.seq+sizeof(int),new_buffer+sizeof(int));
-				//memcpy((new_buffer+2*sizeof(int)), (unsigned char*)&P.packet.header.ack, sizeof(int));
-				std::copy((unsigned char*)&P.packet.header.ack,(unsigned char*)&P.packet.header.ack+sizeof(int),new_buffer+2*sizeof(int));
-				//memcpy((new_buffer+3*sizeof(int)), (unsigned char*)&P.packet.header.data_length, sizeof(int));
-				std::copy((unsigned char*)&P.packet.header.data_length,(unsigned char*)&P.packet.header.data_length+sizeof(int),new_buffer+3*sizeof(int));
+				
+				unsigned char checksum_buffer = static_cast<unsigned char>(P.packet.header.checksum);
+				unsigned char seq_buffer = P.packet.header.seq;
+				unsigned char ack_buffer = P.packet.header.ack;
+				unsigned char data_length_buffer = P.packet.header.data_length;
+				unsigned char* something_buffer = checksum_buffer+seq_buffer+ack_buffer+data_length_buffer+P.packet.data;
+				cout << "sothing: " <<something_buffer[4] << endl;
+				//memcpy(new_buffer, (unsigned char*)&P.packet.header.checksum, sizeof(unsigned int));
+				//std::copy((unsigned char*)&P.packet.header.checksum,(unsigned char*)&P.packet.header.checksum+sizeof(int),new_buffer);
+				//memcpy((new_buffer+sizeof(unsigned int)), (unsigned char*)&P.packet.header.seq, sizeof(int));
+				//std::copy((unsigned char*)&P.packet.header.seq,(unsigned char*)&P.packet.header.seq+sizeof(int),new_buffer+sizeof(int));
+				//memcpy((new_buffer+2*sizeof(unsigned int)), (unsigned char*)&P.packet.header.ack, sizeof(int));
+				//std::copy((unsigned char*)&P.packet.header.ack,(unsigned char*)&P.packet.header.ack+sizeof(int),new_buffer+2*sizeof(int));
+				//memcpy((new_buffer+3*sizeof(unsigned int)), (unsigned char*)&P.packet.header.data_length, sizeof(int));
+				//std::copy((unsigned char*)&P.packet.header.data_length,(unsigned char*)&P.packet.header.data_length+sizeof(int),new_buffer+3*sizeof(int));
 			
-				//memcpy((new_buffer+4*sizeof(int)), P.packet.data, P.packet.header.data_length);
-				std::copy((unsigned char*)&P.packet.data,(unsigned char*)&P.packet.data+sizeof(int),new_buffer+4*sizeof(int));	
-	
-				//std::copy(P.packet.header.checksum,P.packet.header.checksum+sizeof(int),new_buffer);
-				//std::copy(P.packet.header.seq,P.packet.header.seq+sizeof(int),new_buffer+sizeof(int));
-				//std::copy(P.packet.header.ack,P.packet.header.ack+sizeof(int),new_buffer+(sizeof(int)*2));
-				//std::copy(P.packet.header.checksum,P.packet.header.data_length_buffer+sizeof(int),new_buffer+(sizeof(int)*3));
-				if(physical_layer_interface->send(new_buffer,sizeof(new_buffer))){
+				//memcpy((new_buffer+4*sizeof(unsigned int)), P.packet.data, P.packet.header.data_length);
+				//std::copy((unsigned char*)&P.packet.data,(unsigned char*)&P.packet.data+sizeof(int),new_buffer+4*sizeof(int));	
+				if(physical_layer_interface->send(something_buffer,sizeof(something_buffer))){
 					gettimeofday(&now,NULL);
 					P.send_time = now  + timeout;
 				}
@@ -257,23 +259,24 @@ void* Link_layer::loop(void* thread_creator)
 		unsigned int length = link_layer->physical_layer_interface->receive(link_layer->decon_buffer);
 		if (length != 0) {
 			//Need to reconstruct header
-			//memcpy(&p.header.checksum, link_layer->decon_buffer, sizeof(int));
-			std::copy(link_layer->decon_buffer, link_layer->decon_buffer+sizeof(int),&p.header.checksum);
-			//cout << "checksum: " <<  p.header.checksum << endl;
-			//memcpy(&p.header.seq, (link_layer->decon_buffer+sizeof(int)), sizeof(int));
-			std::copy(link_layer->decon_buffer+sizeof(int), link_layer->decon_buffer+2*sizeof(int),&p.header.seq);
+			p.header.checksum = (unsigned int)&link_layer->decon_buffer[0];
+			//memcpy(&p.header.checksum, link_layer->decon_buffer, sizeof(unsigned int));
+			//std::copy(link_layer->decon_buffer, link_layer->decon_buffer+sizeof(int),&p.header.checksum);
+			cout << "checksum: " <<  p.header.checksum << endl;
+			//memcpy(&p.header.seq, (link_layer->decon_buffer+sizeof(unsigned int)), sizeof(unsigned int));
+			//std::copy(link_layer->decon_buffer+sizeof(int), link_layer->decon_buffer+2*sizeof(int),&p.header.seq);
 			//cout << "sequence: " <<  p.header.seq << endl;
-			//memcpy(&p.header.ack, (link_layer->decon_buffer+2*sizeof(int)), sizeof(int));
-			std::copy(link_layer->decon_buffer+2*sizeof(int), link_layer->decon_buffer+3*sizeof(int),&p.header.ack);
+			//memcpy(&p.header.ack, (link_layer->decon_buffer+2*sizeof(unsigned int)), sizeof(unsigned int));
+			//std::copy(link_layer->decon_buffer+2*sizeof(int), link_layer->decon_buffer+3*sizeof(int),&p.header.ack);
 			//cout << "ack: " <<  p.header.ack << endl;
-			//memcpy(&p.header.data_length, (link_layer->decon_buffer+3*sizeof(int)), sizeof(int));
-			std::copy(link_layer->decon_buffer+3*sizeof(int), link_layer->decon_buffer+4*sizeof(int),&p.header.data_length);
+			//memcpy(&p.header.data_length, (link_layer->decon_buffer+3*sizeof(unsigned int)), sizeof(unsigned int));
+			//std::copy(link_layer->decon_buffer+3*sizeof(int), link_layer->decon_buffer+4*sizeof(int),&p.header.data_length);
 			//cout << "data_length: " <<  p.header.data_length << endl;
 
 			//Currently doesn't receive any data_length for some reason
 			
 			//Reconstruct data
-			memcpy(&p.data, (link_layer->decon_buffer+4*sizeof(int)), p.header.data_length);
+			//memcpy(&p.data, (link_layer->decon_buffer+4*sizeof(unsigned int)), p.header.data_length);
 
 			//p.header.checksum = checksum(p);
 			//cout<<"max data length: "<<MAXIMUM_DATA_LENGTH << endl;
