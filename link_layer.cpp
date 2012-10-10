@@ -115,7 +115,10 @@ unsigned int Link_layer::send(unsigned char buffer[],unsigned int length)
 	if(!send_queue.isFull()) {
 		Timed_packet P;
 		gettimeofday(&P.send_time,NULL);
-		std::copy(buffer,buffer+sizeof(buffer),P.packet.data);
+		std::copy(buffer,buffer+length,P.packet.data);
+		//if(length> 1) {
+		//	cout << "add to send queue: " << length << endl;
+		//}
 		P.packet.header.data_length = length;
 		
 		//shared variable 
@@ -155,12 +158,15 @@ unsigned int Link_layer::receive(unsigned char buffer[])
 
 void Link_layer::process_received_packet(struct Packet p)
 {
+	//cout << "receive seq number: " << next_receive_seq  << endl;
 	if (p.header.seq == next_receive_seq) {
+		cout << "ELLLOOOO!" << endl;
 		if (sizeof(p.data) > 0) {
 			pthread_mutex_lock(&receive_buffer_lock);
 			if (receive_buffer_length == 0){
 				//copy packet data to receive_buffer
 				std::copy(p.data,p.data+sizeof(p.data),receive_buffer);
+				receive_buffer_length = p.header.data_length;
 				//increment next_receive_seq
 				next_receive_seq++;
 			}
@@ -173,7 +179,7 @@ void Link_layer::process_received_packet(struct Packet p)
 			pthread_mutex_unlock(&receive_buffer_lock);
 		}
 	}
-
+	//cout << "receive seq number agin: " << next_receive_seq  << endl;
 	last_receive_ack = p.header.ack;
 
 }
@@ -185,28 +191,37 @@ void Link_layer::remove_acked_packets()
 
 void Link_layer::send_timed_out_packets()
 {
+	if(!send_queue.isEmpty()){
+		for(int i=send_queue.head;i<send_queue.tail;i++){
+			Timed_packet P = send_queue.data[i];
+			timeval now;
+			(gettimeofday(&now,NULL));
+			if(P.send_time < now ){
+				//cout << "sending a packet:" << P.packet.header.data_length << endl;
+				P.packet.header.ack = next_receive_seq;
+				P.packet.header.checksum = checksum(P.packet);
 
-	for(int i=send_queue.head;i<send_queue.tail;i++){
-		Timed_packet P = send_queue.data[i];
-		timeval now;
-		(gettimeofday(&now,NULL));
-		if(P.send_time < now ){
-			P.packet.header.ack = next_receive_seq;
-			P.packet.header.checksum = checksum(P.packet);
-
-			//Construct char[] from header and data
-			memcpy(new_buffer, (unsigned char*)&P.packet.header.checksum, sizeof(int));
-			memcpy((new_buffer+sizeof(int)), (unsigned char*)&P.packet.header.seq, sizeof(int));
-			memcpy((new_buffer+2*sizeof(int)), (unsigned char*)&P.packet.header.ack, sizeof(int));
-			memcpy((new_buffer+3*sizeof(int)), (unsigned char*)&P.packet.header.data_length, sizeof(int));
-			memcpy((new_buffer+4*sizeof(int)), P.packet.data, P.packet.header.data_length);
-			//std::copy(P.packet.header.checksum,P.packet.header.checksum+sizeof(int),new_buffer);
-			//std::copy(P.packet.header.seq,P.packet.header.seq+sizeof(int),new_buffer+sizeof(int));
-			//std::copy(P.packet.header.ack,P.packet.header.ack+sizeof(int),new_buffer+(sizeof(int)*2));
-			//std::copy(P.packet.header.checksum,P.packet.header.data_length_buffer+sizeof(int),new_buffer+(sizeof(int)*3));
-			if(physical_layer_interface->send(new_buffer,sizeof(new_buffer))){
-				gettimeofday(&now,NULL);
-				P.send_time = now  + timeout;
+				//Construct char[] from header and data
+				//memcpy(new_buffer, (unsigned char*)&P.packet.header.checksum, sizeof(int));
+				std::copy((unsigned char*)&P.packet.header.checksum,(unsigned char*)&P.packet.header.checksum+sizeof(int),new_buffer);
+				//memcpy((new_buffer+sizeof(int)), (unsigned char*)&P.packet.header.seq, sizeof(int));
+				std::copy((unsigned char*)&P.packet.header.seq,(unsigned char*)&P.packet.header.seq+sizeof(int),new_buffer+sizeof(int));
+				//memcpy((new_buffer+2*sizeof(int)), (unsigned char*)&P.packet.header.ack, sizeof(int));
+				std::copy((unsigned char*)&P.packet.header.ack,(unsigned char*)&P.packet.header.ack+sizeof(int),new_buffer+2*sizeof(int));
+				//memcpy((new_buffer+3*sizeof(int)), (unsigned char*)&P.packet.header.data_length, sizeof(int));
+				std::copy((unsigned char*)&P.packet.header.data_length,(unsigned char*)&P.packet.header.data_length+sizeof(int),new_buffer+3*sizeof(int));
+			
+				//memcpy((new_buffer+4*sizeof(int)), P.packet.data, P.packet.header.data_length);
+				std::copy((unsigned char*)&P.packet.data,(unsigned char*)&P.packet.data+sizeof(int),new_buffer+4*sizeof(int));	
+	
+				//std::copy(P.packet.header.checksum,P.packet.header.checksum+sizeof(int),new_buffer);
+				//std::copy(P.packet.header.seq,P.packet.header.seq+sizeof(int),new_buffer+sizeof(int));
+				//std::copy(P.packet.header.ack,P.packet.header.ack+sizeof(int),new_buffer+(sizeof(int)*2));
+				//std::copy(P.packet.header.checksum,P.packet.header.data_length_buffer+sizeof(int),new_buffer+(sizeof(int)*3));
+				if(physical_layer_interface->send(new_buffer,sizeof(new_buffer))){
+					gettimeofday(&now,NULL);
+					P.send_time = now  + timeout;
+				}
 			}
 		}
 	}
@@ -243,26 +258,31 @@ void* Link_layer::loop(void* thread_creator)
 		unsigned int length = link_layer->physical_layer_interface->receive(link_layer->decon_buffer);
 		if (length != 0) {
 			//Need to reconstruct header
-			memcpy(&p.header.checksum, link_layer->decon_buffer, sizeof(int));
-			cout << "checksum: " <<  p.header.checksum << endl;
-			memcpy(&p.header.seq, (link_layer->decon_buffer+sizeof(int)), sizeof(int));
-			cout << "sequence: " <<  p.header.seq << endl;
-			memcpy(&p.header.ack, (link_layer->decon_buffer+2*sizeof(int)), sizeof(int));
-			cout << "ack: " <<  p.header.ack << endl;
-			memcpy(&p.header.data_length, (link_layer->decon_buffer+3*sizeof(int)), sizeof(int));
-			cout << "data_length: " <<  p.header.data_length << endl;
+			//memcpy(&p.header.checksum, link_layer->decon_buffer, sizeof(int));
+			std::copy(link_layer->decon_buffer, link_layer->decon_buffer+sizeof(int),&p.header.checksum);
+			//cout << "checksum: " <<  p.header.checksum << endl;
+			//memcpy(&p.header.seq, (link_layer->decon_buffer+sizeof(int)), sizeof(int));
+			std::copy(link_layer->decon_buffer+sizeof(int), link_layer->decon_buffer+2*sizeof(int),&p.header.seq);
+			//cout << "sequence: " <<  p.header.seq << endl;
+			//memcpy(&p.header.ack, (link_layer->decon_buffer+2*sizeof(int)), sizeof(int));
+			std::copy(link_layer->decon_buffer+2*sizeof(int), link_layer->decon_buffer+3*sizeof(int),&p.header.ack);
+			//cout << "ack: " <<  p.header.ack << endl;
+			//memcpy(&p.header.data_length, (link_layer->decon_buffer+3*sizeof(int)), sizeof(int));
+			std::copy(link_layer->decon_buffer+3*sizeof(int), link_layer->decon_buffer+4*sizeof(int),&p.header.data_length);
+			//cout << "data_length: " <<  p.header.data_length << endl;
 
 			//Reconstruct data
 			memcpy(&p.data, (link_layer->decon_buffer+4*sizeof(int)), p.header.data_length);
 
 			//p.header.checksum = checksum(p);
-			cout<<"max data length: "<<MAXIMUM_DATA_LENGTH << endl;
+			//cout<<"max data length: "<<MAXIMUM_DATA_LENGTH << endl;
 			if (length > 0 && length <= Physical_layer_interface::MAXIMUM_BUFFER_LENGTH) {
-				cout << "do i get here?" <<endl;
+				//cout << "do i get here?" <<endl;
 				link_layer->process_received_packet(p);
 			}
-			cout << "second something" << endl;
+			//cout << "second something" << endl;
 		}
+
 		//For sent packets
 		link_layer->remove_acked_packets();
 		link_layer->send_timed_out_packets();
