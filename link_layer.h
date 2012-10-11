@@ -25,26 +25,7 @@ struct Timed_packet {
 	timeval send_time;
 	struct Packet packet;
 };
-/*
-const int MAX_QUEUE_SIZE = 3;
-class Send_Queue {
 
-	public :
-	Timed_packet data[MAX_QUEUE_SIZE];
-	int head,tail,queue_size;
-	Send_Queue()
-	{
-		head=tail=-1;
-		queue_size=0;
-	}
-	void enqueue(Timed_packet);
-	Timed_packet dequeue();
-	bool isEmpty();
-	bool isFull();
-	int size();
-	void removeLeft(unsigned int);
-};
-*/
 class Link_layer {
 public:
 	enum {MAXIMUM_DATA_LENGTH = 
@@ -81,7 +62,7 @@ private:
 	unsigned int last_receive_ack;
 
 	//Buffer for constructing send packets
-	unsigned char* new_buffer;
+	unsigned char* send_buffer;
 
 	//Buffer for deconstructing receive packets
 	unsigned char* decon_buffer;
@@ -89,7 +70,7 @@ private:
 	unsigned char receive_buffer[MAXIMUM_DATA_LENGTH];
 	unsigned int receive_buffer_length;
 
-	//Send_Queue send_queue;
+	//queue functions
 	void enqueue(Timed_packet);
 	bool is_queue_full();
 
