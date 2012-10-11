@@ -6,7 +6,7 @@
 
 
 unsigned short checksum(struct Packet);
-
+/*
 void Send_Queue :: enqueue(Timed_packet p)
 {
 	if(isFull()) {
@@ -20,6 +20,7 @@ void Send_Queue :: enqueue(Timed_packet p)
 			tail++;
 		}
 		data[tail]=p;
+		queue_size++;
 	}
 	if(head == -1) {
 		head = 0;
@@ -34,6 +35,7 @@ Timed_packet Send_Queue :: dequeue()
 	}
 	else {
 		k=data[head];
+		queue_size--;
 		if(head==tail) {
 			head=tail=-1;
 		}
@@ -47,20 +49,14 @@ Timed_packet Send_Queue :: dequeue()
 	return k;
 }
 bool Send_Queue :: isEmpty() {
-	if(head == -1) {
-		return true;
-	}
-	return false;
+	return (queue_size == 0);
 }
-//Wrong!
+
 int Send_Queue :: size(){
-	return (tail - head);
+	return queue_size;
 }
 bool Send_Queue :: isFull() {
-	if((head==0 && tail==MAX_QUEUE_SIZE-1) || (tail+1==head)) {
-		return true;
-	}
-	return false;
+	return (queue_size == MAX_QUEUE_SIZE);
 }
 void Send_Queue :: removeLeft(unsigned int packet_num) {
 	if(isEmpty()){
@@ -80,20 +76,29 @@ void Send_Queue :: removeLeft(unsigned int packet_num) {
 			dequeue();
 		}
 	}
-}
+}*/
+
+
 
 
 Link_layer::Link_layer(Physical_layer_interface* physical_layer_interface,
  unsigned int num_sequence_numbers,
- unsigned int max_send_window_size,unsigned int timeout):num_sequence_numbers(num_sequence_numbers),max_send_window_size(max_send_window_size)
+ unsigned int max_send_window_size,unsigned int timeout)
 {
 	this->physical_layer_interface = physical_layer_interface;
+	this->max_send_window_size = max_send_window_size;
+	this->num_sequence_numbers = num_sequence_numbers;
+	this->timeout.tv_usec = timeout;
 
 	receive_buffer_length = 0;
 
 	next_send_seq = 0;
 	next_receive_seq = 0;
 	last_receive_ack = 0;
+	send_queue_size=0;
+	send_queue_front = 0;
+
+	send_queue = new Timed_packet[max_send_window_size];
 
 	new_buffer = new unsigned char[Physical_layer_interface::MAXIMUM_BUFFER_LENGTH];
 	decon_buffer = new unsigned char[Physical_layer_interface::MAXIMUM_BUFFER_LENGTH];
@@ -106,29 +111,40 @@ Link_layer::Link_layer(Physical_layer_interface* physical_layer_interface,
 
 }
 
+void Link_layer::enqueue(Timed_packet p){
+	send_queue[(send_queue_front+send_queue_size)%max_send_window_size] = p;
+	send_queue_size++;
+}
+
+bool Link_layer::is_queue_full(){
+	return (send_queue_size == max_send_window_size);
+}
+
 unsigned int Link_layer::send(unsigned char buffer[],unsigned int length)
 {
 	if(length == 0 || length > MAXIMUM_DATA_LENGTH) {
 		throw Link_layer_exception();
 	}
-	if(!send_queue.isFull()) {
+
+	if(!is_queue_full()) {
 		Timed_packet P;
 		gettimeofday(&P.send_time,NULL);
-		std::copy(buffer,buffer+length,P.packet.data);
-		//if(length> 1) {
-		//	cout << "add to send queue: " << length << endl;
-		//}
+		//std::copy(buffer,buffer+length,P.packet.data);
+		memcpy(P.packet.data, buffer, length);		
 		P.packet.header.data_length = length;
 		
 		//shared variable 
 		pthread_mutex_lock(&send_lock);
 		P.packet.header.seq = next_send_seq;
-		pthread_mutex_unlock(&send_lock);
-		send_queue.enqueue(P);
+
+
+		enqueue(P);
 
 		//shared variable 
-		pthread_mutex_lock(&send_lock);
-		next_send_seq++;
+
+		next_send_seq = (next_send_seq + 1) % num_sequence_numbers;
+
+
 		pthread_mutex_unlock(&send_lock);
 
 		//now its length not true
@@ -157,57 +173,78 @@ unsigned int Link_layer::receive(unsigned char buffer[])
 
 void Link_layer::process_received_packet(struct Packet p)
 {
+	pthread_mutex_lock(&receive_buffer_lock);
 	//cout << "receive seq number: " << next_receive_seq  << endl;
 	if (p.header.seq == next_receive_seq) {
 		//cout << "ELLLOOOO!" << endl;
 		if (p.header.data_length > 0) {
-			pthread_mutex_lock(&receive_buffer_lock);
+
 			if (receive_buffer_length == 0){
 				//copy packet data to receive_buffer
-				std::copy(p.data,p.data+sizeof(p.data),receive_buffer);
+				//std::copy(p.data,p.data+sizeof(p.data),receive_buffer);
+				memcpy(receive_buffer, p.data, p.header.data_length);
+				
 				receive_buffer_length = p.header.data_length;
 				//increment next_receive_seq
-				next_receive_seq++;
+				next_receive_seq = (next_receive_seq + 1) % num_sequence_numbers;
 			}
-			pthread_mutex_unlock(&receive_buffer_lock);
+
 		}
 		else {
 			//increment next_receive_seq
-			pthread_mutex_lock(&receive_buffer_lock);
-			next_receive_seq++;
-			pthread_mutex_unlock(&receive_buffer_lock);
+
+			next_receive_seq = (next_receive_seq + 1) % num_sequence_numbers;
+
 		}
 	}
 	//cout << "receive seq number agin: " << next_receive_seq  << endl;
 	last_receive_ack = p.header.ack;
 
+	pthread_mutex_unlock(&receive_buffer_lock);
 }
 
 void Link_layer::remove_acked_packets()
 {
-	send_queue.removeLeft(last_receive_ack);
+	//send_queue.removeLeft(last_receive_ack);
+	unsigned int size = send_queue_size;
+	unsigned int front = send_queue_front;
+	
+	for (unsigned int i = 0; i < size; i++) {
+		Timed_packet p = send_queue[(front + i) % max_send_window_size];
+		unsigned int seq_num = p.packet.header.seq;
+		seq_num = (seq_num + 1) % num_sequence_numbers;
+		if(seq_num == last_receive_ack){
+			send_queue_front = (front + i + 1) % max_send_window_size;
+			send_queue_size -= (i + 1);	
+		}		
+	}
+	
 }
 
 void Link_layer::send_timed_out_packets()
 {
-	if(!send_queue.isEmpty()){
-		for(int i=send_queue.head;i<send_queue.tail;i++){
-			Timed_packet P = send_queue.data[i];
+
+	pthread_mutex_lock(&send_lock);
+
+	if(send_queue_size != 0){
+		for (unsigned int i = 0; i < send_queue_size; i++) {
+			Timed_packet* P = &send_queue[(send_queue_front + i) % max_send_window_size];
 			timeval now;
 			(gettimeofday(&now,NULL));
-			if(P.send_time < now ){
+			if(P->send_time < now ){
 				//cout << "sending a packet:" << P.packet.header.data_length << endl;
-				P.packet.header.ack = next_receive_seq;
-				P.packet.header.checksum = checksum(P.packet);
+				P->packet.header.ack = next_receive_seq;
+				P->packet.header.checksum = checksum(P->packet);
 
 				//Construct char[] from header and data
 				
-				unsigned char checksum_buffer = static_cast<unsigned char>(P.packet.header.checksum);
-				unsigned char seq_buffer = P.packet.header.seq;
-				unsigned char ack_buffer = P.packet.header.ack;
-				unsigned char data_length_buffer = P.packet.header.data_length;
-				unsigned char* something_buffer = checksum_buffer+seq_buffer+ack_buffer+data_length_buffer+P.packet.data;
-				cout << "sothing: " <<something_buffer[4] << endl;
+				//unsigned char checksum_buffer = static_cast<unsigned char>(P.packet.header.checksum);
+				//unsigned char seq_buffer = static_cast<unsigned char>(P.packet.header.seq);
+				//unsigned char ack_buffer = static_cast<unsigned char>(P.packet.header.ack);
+				//unsigned char data_length_buffer = static_cast<unsigned char>(P.packet.header.data_length);
+				//unsigned char* something_buffer = checksum_buffer+seq_buffer+ack_buffer+data_length_buffer+P.packet.data;
+
+				//cout << "sothing: " <<something_buffer[4] << endl;
 				//memcpy(new_buffer, (unsigned char*)&P.packet.header.checksum, sizeof(unsigned int));
 				//std::copy((unsigned char*)&P.packet.header.checksum,(unsigned char*)&P.packet.header.checksum+sizeof(int),new_buffer);
 				//memcpy((new_buffer+sizeof(unsigned int)), (unsigned char*)&P.packet.header.seq, sizeof(int));
@@ -218,33 +255,48 @@ void Link_layer::send_timed_out_packets()
 				//std::copy((unsigned char*)&P.packet.header.data_length,(unsigned char*)&P.packet.header.data_length+sizeof(int),new_buffer+3*sizeof(int));
 			
 				//memcpy((new_buffer+4*sizeof(unsigned int)), P.packet.data, P.packet.header.data_length);
-				//std::copy((unsigned char*)&P.packet.data,(unsigned char*)&P.packet.data+sizeof(int),new_buffer+4*sizeof(int));	
-				if(physical_layer_interface->send(something_buffer,sizeof(something_buffer))){
+				//std::copy((unsigned char*)&P.packet.data,(unsigned char*)&P.packet.data+sizeof(int),new_buffer+4*sizeof(int));
+
+
+				unsigned int packet_length = P->packet.header.data_length + sizeof(Packet_header);
+
+				unsigned char something_buffer[Physical_layer_interface::MAXIMUM_BUFFER_LENGTH];
+				memcpy(something_buffer, &P->packet, packet_length);
+
+	
+				if(physical_layer_interface->send(something_buffer,packet_length)){
 					gettimeofday(&now,NULL);
-					P.send_time = now  + timeout;
+					P->send_time = now  + timeout;
 				}
 			}
 		}
 	}
+	
+	pthread_mutex_unlock(&send_lock);
 }
 
 void Link_layer::generate_ack_packet()
 {
 
-	if(send_queue.isEmpty()){
+	pthread_mutex_lock(&send_lock);
+	if(send_queue_size==0){
 		Timed_packet P;
 		gettimeofday(&P.send_time,NULL);
 
-		pthread_mutex_lock(&send_lock);
+
 		P.packet.header.seq = next_send_seq;
-		pthread_mutex_unlock(&send_lock);
+
 
 		P.packet.header.data_length = 0;
 
-		pthread_mutex_lock(&send_lock);
-		next_send_seq++;
-		pthread_mutex_unlock(&send_lock);
+		enqueue(P);
+
+
+		next_send_seq = (next_send_seq + 1) % num_sequence_numbers;
+
 	}
+
+	pthread_mutex_unlock(&send_lock);
 	
 }
 
@@ -255,20 +307,22 @@ void* Link_layer::loop(void* thread_creator)
 
 	while (true) {
 		//For received packets
-		Packet p;
+
 		unsigned int length = link_layer->physical_layer_interface->receive(link_layer->decon_buffer);
 		if (length != 0) {
 			//Need to reconstruct header
-			p.header.checksum = (unsigned int)&link_layer->decon_buffer[0];
+			//p.header.checksum = static_cast<unsigned int>(link_layer->decon_buffer[0]);
 			//memcpy(&p.header.checksum, link_layer->decon_buffer, sizeof(unsigned int));
 			//std::copy(link_layer->decon_buffer, link_layer->decon_buffer+sizeof(int),&p.header.checksum);
-			cout << "checksum: " <<  p.header.checksum << endl;
+			//cout << "checksum: " <<  p.header.checksum << endl;
 			//memcpy(&p.header.seq, (link_layer->decon_buffer+sizeof(unsigned int)), sizeof(unsigned int));
 			//std::copy(link_layer->decon_buffer+sizeof(int), link_layer->decon_buffer+2*sizeof(int),&p.header.seq);
 			//cout << "sequence: " <<  p.header.seq << endl;
 			//memcpy(&p.header.ack, (link_layer->decon_buffer+2*sizeof(unsigned int)), sizeof(unsigned int));
 			//std::copy(link_layer->decon_buffer+2*sizeof(int), link_layer->decon_buffer+3*sizeof(int),&p.header.ack);
 			//cout << "ack: " <<  p.header.ack << endl;
+		
+			//p.header.data_length = static_cast<unsigned int>(link_layer->decon_buffer[0]);
 			//memcpy(&p.header.data_length, (link_layer->decon_buffer+3*sizeof(unsigned int)), sizeof(unsigned int));
 			//std::copy(link_layer->decon_buffer+3*sizeof(int), link_layer->decon_buffer+4*sizeof(int),&p.header.data_length);
 			//cout << "data_length: " <<  p.header.data_length << endl;
@@ -278,12 +332,22 @@ void* Link_layer::loop(void* thread_creator)
 			//Reconstruct data
 			//memcpy(&p.data, (link_layer->decon_buffer+4*sizeof(unsigned int)), p.header.data_length);
 
-			//p.header.checksum = checksum(p);
-			//cout<<"max data length: "<<MAXIMUM_DATA_LENGTH << endl;
-			if (length > 0 && length <= Physical_layer_interface::MAXIMUM_BUFFER_LENGTH) {
-				//cout << "do i get here?" <<endl;
+			Packet p;
+			memcpy(&p, link_layer->decon_buffer, length);
+			
+			if(length >= sizeof(Packet_header) && length <= Physical_layer_interface::MAXIMUM_BUFFER_LENGTH && p.header.checksum == checksum(p)) {
+				
 				link_layer->process_received_packet(p);
 			}
+			
+			
+
+			//p.header.checksum = checksum(p);
+			//cout<<"max data length: "<<MAXIMUM_DATA_LENGTH << endl;
+			//if (length > 0 && length <= Physical_layer_interface::MAXIMUM_BUFFER_LENGTH) {
+				//cout << "do i get here?" <<endl;
+			//	link_layer->process_received_packet(p);
+			//}
 			//cout << "second something" << endl;
 		}
 

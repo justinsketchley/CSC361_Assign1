@@ -25,16 +25,17 @@ struct Timed_packet {
 	timeval send_time;
 	struct Packet packet;
 };
-
-const int MAX_QUEUE_SIZE = 1024;
+/*
+const int MAX_QUEUE_SIZE = 3;
 class Send_Queue {
 
 	public :
 	Timed_packet data[MAX_QUEUE_SIZE];
-	int head,tail;
+	int head,tail,queue_size;
 	Send_Queue()
 	{
 		head=tail=-1;
+		queue_size=0;
 	}
 	void enqueue(Timed_packet);
 	Timed_packet dequeue();
@@ -43,7 +44,7 @@ class Send_Queue {
 	int size();
 	void removeLeft(unsigned int);
 };
-
+*/
 class Link_layer {
 public:
 	enum {MAXIMUM_DATA_LENGTH = 
@@ -66,6 +67,10 @@ private:
 	pthread_mutex_t receive_buffer_lock;
 	pthread_mutex_t send_lock;
 
+	Timed_packet *send_queue;
+	unsigned int send_queue_size;
+	unsigned int send_queue_front;
+
 	// seq for next packet added to send_queue
 	unsigned int next_send_seq;
 
@@ -84,7 +89,9 @@ private:
 	unsigned char receive_buffer[MAXIMUM_DATA_LENGTH];
 	unsigned int receive_buffer_length;
 
-	Send_Queue send_queue;
+	//Send_Queue send_queue;
+	void enqueue(Timed_packet);
+	bool is_queue_full();
 
 	static void* loop(void* link_layer);
 	void process_received_packet(struct Packet p);
