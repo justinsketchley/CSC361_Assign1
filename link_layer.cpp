@@ -6,80 +6,6 @@
 
 
 unsigned short checksum(struct Packet);
-/*
-void Send_Queue :: enqueue(Timed_packet p)
-{
-	if(isFull()) {
-		//queue full
-	}	
-	else {
-		if(tail==MAX_QUEUE_SIZE-1) {
-			tail=0;
-		}
-		else {
-			tail++;
-		}
-		data[tail]=p;
-		queue_size++;
-	}
-	if(head == -1) {
-		head = 0;
-	}
-}
-Timed_packet Send_Queue :: dequeue()
-{
-	Timed_packet k;
-
-	if(isEmpty()) {
-		//Empty
-	}
-	else {
-		k=data[head];
-		queue_size--;
-		if(head==tail) {
-			head=tail=-1;
-		}
-		else if (head==MAX_QUEUE_SIZE-1) {
-			head=0;
-		}
-		else {
-			head++;
-		}
-	}
-	return k;
-}
-bool Send_Queue :: isEmpty() {
-	return (queue_size == 0);
-}
-
-int Send_Queue :: size(){
-	return queue_size;
-}
-bool Send_Queue :: isFull() {
-	return (queue_size == MAX_QUEUE_SIZE);
-}
-void Send_Queue :: removeLeft(unsigned int packet_num) {
-	if(isEmpty()){
-		return;
-	}
-	//Find packet in queue
-	int location = -1;
-	for(int i=head;i<size();i++){
-		if(data[i].packet.header.seq == packet_num){
-			location = i;
-			break;		
-		}
-	}
-	if(location != -1){
-		//remove packets to left of found packet
-		for(int i=head;i<=location;i++){
-			dequeue();
-		}
-	}
-}*/
-
-
-
 
 Link_layer::Link_layer(Physical_layer_interface* physical_layer_interface,
  unsigned int num_sequence_numbers,
@@ -205,7 +131,6 @@ void Link_layer::process_received_packet(struct Packet p)
 
 void Link_layer::remove_acked_packets()
 {
-	//send_queue.removeLeft(last_receive_ack);
 	unsigned int size = send_queue_size;
 	unsigned int front = send_queue_front;
 	
@@ -283,14 +208,11 @@ void Link_layer::generate_ack_packet()
 		Timed_packet P;
 		gettimeofday(&P.send_time,NULL);
 
-
 		P.packet.header.seq = next_send_seq;
-
 
 		P.packet.header.data_length = 0;
 
 		enqueue(P);
-
 
 		next_send_seq = (next_send_seq + 1) % num_sequence_numbers;
 
@@ -335,20 +257,10 @@ void* Link_layer::loop(void* thread_creator)
 			Packet p;
 			memcpy(&p, link_layer->decon_buffer, length);
 			
-			if(length >= sizeof(Packet_header) && length <= Physical_layer_interface::MAXIMUM_BUFFER_LENGTH && p.header.checksum == checksum(p)) {
+			if(length >= sizeof(Packet_header) && length <= Physical_layer_interface::MAXIMUM_BUFFER_LENGTH && p.header.checksum == checksum(p) && p.header.data_length <= (Physical_layer_interface::MAXIMUM_BUFFER_LENGTH-sizeof(Packet_header))) {
 				
 				link_layer->process_received_packet(p);
 			}
-			
-			
-
-			//p.header.checksum = checksum(p);
-			//cout<<"max data length: "<<MAXIMUM_DATA_LENGTH << endl;
-			//if (length > 0 && length <= Physical_layer_interface::MAXIMUM_BUFFER_LENGTH) {
-				//cout << "do i get here?" <<endl;
-			//	link_layer->process_received_packet(p);
-			//}
-			//cout << "second something" << endl;
 		}
 
 		//For sent packets
