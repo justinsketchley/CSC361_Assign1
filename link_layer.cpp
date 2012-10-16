@@ -206,9 +206,10 @@ void* Link_layer::loop(void* thread_creator)
 			Packet p;
 			memcpy(&p, link_layer->decon_buffer, length);
 			
-			if(length >= sizeof(Packet_header) && length <= Physical_layer_interface::MAXIMUM_BUFFER_LENGTH && p.header.checksum == checksum(p) && p.header.data_length <= (Physical_layer_interface::MAXIMUM_BUFFER_LENGTH-sizeof(Packet_header))) {
-				
-				link_layer->process_received_packet(p);
+			if(length >= sizeof(Packet_header) && length <= Physical_layer_interface::MAXIMUM_BUFFER_LENGTH && p.header.data_length <= MAXIMUM_DATA_LENGTH) {
+				if(p.header.checksum == checksum(p)){
+					link_layer->process_received_packet(p);
+				}
 			}
 		}
 
@@ -237,7 +238,7 @@ unsigned short checksum(struct Packet p)
 	unsigned int length;
 
 	if (p.header.data_length > Link_layer::MAXIMUM_DATA_LENGTH) {
-		throw Link_layer_exception();
+		throw Link_layer_exception("checksum");
 	}
 
 	copy = p;
