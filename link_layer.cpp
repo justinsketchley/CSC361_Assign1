@@ -53,17 +53,17 @@ unsigned int Link_layer::send(unsigned char buffer[],unsigned int length)
 	}
 
 	if(!is_queue_full()) {
-		Timed_packet P;
-		gettimeofday(&P.send_time,NULL);
+		Timed_packet p;
+		gettimeofday(&p.send_time,NULL);
 
-		memcpy(P.packet.data, buffer, length);		
-		P.packet.header.data_length = length;
+		memcpy(p.packet.data, buffer, length);		
+		p.packet.header.data_length = length;
 		
 		//shared variable 
 		pthread_mutex_lock(&send_lock);
-		P.packet.header.seq = next_send_seq;
+		p.packet.header.seq = next_send_seq;
 
-		enqueue(P);
+		enqueue(p);
 
 		//shared variable not issue new after the Link_layer constructor has returned.
 		next_send_seq = (next_send_seq + 1) % num_sequence_numbers;
@@ -148,21 +148,21 @@ void Link_layer::send_timed_out_packets()
 
 	if(send_queue_size != 0){
 		for (unsigned int i = 0; i < send_queue_size; i++) {
-			Timed_packet* P = &send_queue[(send_queue_front + i) % max_send_window_size];
+			Timed_packet* p = &send_queue[(send_queue_front + i) % max_send_window_size];
 			timeval now;
 			(gettimeofday(&now,NULL));
-			if(P->send_time < now ){
+			if(p->send_time < now ){
 
-				P->packet.header.ack = next_receive_seq;
-				P->packet.header.checksum = checksum(P->packet);
+				p->packet.header.ack = next_receive_seq;
+				p->packet.header.checksum = checksum(p->packet);
 
-				unsigned int packet_length = P->packet.header.data_length + sizeof(Packet_header);
+				unsigned int packet_length = p->packet.header.data_length + sizeof(Packet_header);
 
-				memcpy(send_buffer, &P->packet, packet_length);
+				memcpy(send_buffer, &p->packet, packet_length);
 	
 				if(physical_layer_interface->send(send_buffer,packet_length)){
 					gettimeofday(&now,NULL);
-					P->send_time = now  + timeout;
+					p->send_time = now  + timeout;
 				}
 			}
 		}
@@ -176,14 +176,14 @@ void Link_layer::generate_ack_packet()
 
 	pthread_mutex_lock(&send_lock);
 	if(send_queue_size==0){
-		Timed_packet P;
-		gettimeofday(&P.send_time,NULL);
+		Timed_packet p;
+		gettimeofday(&p.send_time,NULL);
 
-		P.packet.header.seq = next_send_seq;
+		p.packet.header.seq = next_send_seq;
 
-		P.packet.header.data_length = 0;
+		p.packet.header.data_length = 0;
 
-		enqueue(P);
+		enqueue(p);
 
 		next_send_seq = (next_send_seq + 1) % num_sequence_numbers;
 
