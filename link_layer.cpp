@@ -238,7 +238,7 @@ unsigned short checksum(struct Packet p)
 	unsigned int length;
 
 	if (p.header.data_length > Link_layer::MAXIMUM_DATA_LENGTH) {
-		throw Link_layer_exception("checksum");
+		throw Link_layer_exception();
 	}
 
 	copy = p;
